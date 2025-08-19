@@ -3,29 +3,20 @@ import time
 import torch
 from tiny_knn.api import compute_topk
 
-# Map string to torch dtype
+# Map string to torch dtype (supported only)
 DTYPE_MAP = {
     "float32": torch.float32,
     "float16": torch.float16,
     "bfloat16": torch.bfloat16,
-    "int8": torch.int8,
-    "qint8": torch.qint8,
-    "quint4x2": torch.quint4x2,
-    "float8_e4m3fn": torch.float8_e4m3fn,
-    "float8_e5m2": torch.float8_e5m2,
-    "float64": torch.float64,
-    "int16": torch.int16,
-    "int32": torch.int32,
-    "int64": torch.int64,
-    "uint8": torch.uint8,
-    "bool": torch.bool,
 }
 
 
+def _gen_tensor(shape, dtype_str):
+    dtype = DTYPE_MAP[dtype_str]
+    return (torch.rand(shape, dtype=torch.float32) * 2 - 1).to(dtype)
+
+
 def benchmark(q_shape, d_shape, dtype_str, k):
-    """
-    Generates random data and benchmarks the compute_topk function.
-    """
     print("-" * 80)
     print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}")
 
@@ -33,52 +24,31 @@ def benchmark(q_shape, d_shape, dtype_str, k):
     d_path = "temp_docs.pt"
     output_path = "temp_results.pt"
 
-    # Generate random data with explicit dtype handling (torch-only)
-    if dtype_str == "int8":
-        # randint supports negative ranges; use int16 then cast for safety
-        q_t = torch.randint(-128, 128, q_shape, dtype=torch.int16).to(torch.int8)
-        d_t = torch.randint(-128, 128, d_shape, dtype=torch.int16).to(torch.int8)
-    else:
-        dtype = DTYPE_MAP.get(dtype_str, torch.float32)
-        q_t = torch.rand(q_shape, dtype=torch.float32).to(dtype)
-        d_t = torch.rand(d_shape, dtype=torch.float32).to(dtype)
+    q_t = _gen_tensor(q_shape, dtype_str)
+    d_t = _gen_tensor(d_shape, dtype_str)
 
     torch.save(q_t, q_path)
     torch.save(d_t, d_path)
 
-    # Run the benchmark
     start_time = time.time()
-    compute_topk(
-        q_path=q_path,
-        d_path=d_path,
-        k=k,
-        out_path=output_path,
-    )
+    compute_topk(q_path=q_path, d_path=d_path, k=k, out_path=output_path)
     elapsed = time.time() - start_time
     print(f"Time taken: {elapsed:.2f}s")
 
-    # Clean up
     os.remove(q_path)
     os.remove(d_path)
     os.remove(output_path)
 
 
 def main():
-    # Define benchmark configurations
     configs = [
         # Small matrices
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "int8", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "qint8", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "quint4x2", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float8_e4m3fn", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float8_e5m2", "k": 100},
         # Medium matrices
         {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100},
         {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "int8", "k": 100},
         # Large matrices
         {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100},
         {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float32", "k": 100},

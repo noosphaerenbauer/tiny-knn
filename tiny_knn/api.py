@@ -5,14 +5,6 @@ from typing import Tuple
 import torch
 
 
-def _torch_dtype(dtype_str: str) -> torch.dtype:
-    """Converts a string to a torch.dtype."""
-    try:
-        return getattr(torch, dtype_str)
-    except AttributeError:
-        raise ValueError(f"Unsupported dtype: {dtype_str}")
-
-
 def _derive_output_path(queries_path: str, docs_path: str, k: int) -> str:
     """Derives a default output path from the input paths."""
     qbase = os.path.splitext(os.path.basename(queries_path))[0]
@@ -29,7 +21,7 @@ def _get_free_cuda_mem() -> Tuple[int, int]:
         return 0, 0
 
 
-def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 0.5, max_batch_size: int = 262144) -> int:
+def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 0.5, max_batch_size: int = 524288) -> int:
     """
     Estimate a safe batch size to fit in GPU memory.
     This is a heuristic that allocates a fraction of memory for the query batch.
@@ -52,7 +44,7 @@ def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 
 
 
 
-def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, score_bytes: int, safety_frac: float = 0.5, max_chunk_size: int = 262144) -> int:
+def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, score_bytes: int, safety_frac: float = 0.5, max_chunk_size: int = 524288) -> int:
     """
     Estimate a safe number of document rows to load on GPU per chunk so that:
       - result matrix (batch_size x rows) fits comfortably
@@ -85,11 +77,9 @@ def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, 
 def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     """Moves a CPU torch tensor chunk to the target device with proper dtype, using pinned memory on CUDA."""
     if device.type == "cuda":
-        # Pin and transfer non-blocking for better H2D throughput
         t_cpu = t_cpu.contiguous().pin_memory()
         return t_cpu.to(device=device, dtype=dtype, non_blocking=True)
     else:
-        # Stay on CPU, just ensure dtype
         return t_cpu.to(device=device, dtype=dtype)
 
 
@@ -112,6 +102,10 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     # Load tensors from disk (CPU)
     q_cpu: torch.Tensor = torch.load(q_path, map_location="cpu")
     d_cpu: torch.Tensor = torch.load(d_path, map_location="cpu")
+
+    # Reject unsupported dtypes
+    if q_cpu.dtype not in [torch.float16, torch.bfloat16, torch.float32] or d_cpu.dtype not in [torch.float16, torch.bfloat16, torch.float32]:
+        raise ValueError("Input dtype is not supported. Cast inputs to float16, bfloat16, or float32.")
 
     if q_cpu.dim() != 2 or d_cpu.dim() != 2:
         raise ValueError("Embeddings must be 2D tensors of shape (N, dim)")
@@ -205,14 +199,9 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                 else:  # CPU path
                     db = _to_device_chunk(d_cpu[ds:de], device, tdtype)
 
-                # Precision-aware GEMM to support int8 and bf16
-                if qb.dtype == torch.int8:
-                    # Upcast int8 -> float16 for fast CUDA GEMM (Tensor Cores) and to avoid addmm_cuda error
-                    q_mat = qb.to(torch.float16)
-                    db_mat = db.to(torch.float16)
-                    scores = torch.matmul(q_mat, db_mat.t().contiguous())
-                elif qb.dtype == torch.bfloat16 and device.type == "cpu":
-                    # Some CPUs have slow/limited bf16; use fp32 on CPU for stability
+                # Precision-aware GEMM: support float32/16/bfloat16
+                if device.type == "cpu" and qb.dtype in (torch.bfloat16, torch.float16):
+                    # Upcast reduced precision to fp32 on CPU for robust matmul
                     scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t().contiguous())
                 else:
                     scores = torch.matmul(qb, db.t().contiguous())
