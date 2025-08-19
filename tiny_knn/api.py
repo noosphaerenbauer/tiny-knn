@@ -78,7 +78,7 @@ def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, 
 def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     """Moves a CPU torch tensor chunk to the target device with proper dtype, using pinned memory on CUDA."""
     if device.type == "cuda":
-        t_cpu = t_cpu.contiguous().pin_memory()
+        t_cpu = t_cpu.pin_memory()
         return t_cpu.to(device=device, dtype=dtype, non_blocking=True)
     else:
         return t_cpu.to(device=device, dtype=dtype)
