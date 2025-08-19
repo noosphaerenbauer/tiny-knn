@@ -1,3 +1,7 @@
+# Temporary files for benchmarking
+temp_*.npy
+temp_*.pkl
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
