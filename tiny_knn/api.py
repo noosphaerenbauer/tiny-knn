@@ -3,6 +3,7 @@ import time
 from typing import Tuple
 
 import torch
+import torch.nn.functional as F
 
 
 def _derive_output_path(queries_path: str, docs_path: str, k: int) -> str:
@@ -83,14 +84,15 @@ def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dty
         return t_cpu.to(device=device, dtype=dtype)
 
 
-def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_path: str | None = None) -> str:
+def exact_search(q_path: str, d_path: str, k: int, metric: str = "ip", force_cpu: bool = False, out_path: str | None = None) -> str:
     """
-    Computes top-K similarities (dot-product) between query and document embeddings.
+    Computes top-K nearest neighbors using exact search.
 
     Args:
         q_path: Path to the torch-saved tensor of query embeddings.
         d_path: Path to the torch-saved tensor of document embeddings.
         k: The number of top similarities to retrieve for each query.
+        metric: The similarity metric to use ('ip' for inner product, 'cosine' for cosine similarity).
         force_cpu: If True, forces the computation to run on the CPU.
         out_path: Optional path to save the results. If None, a path is derived from the input paths.
 
@@ -158,7 +160,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     topk_indices = torch.empty((Q, k), dtype=torch.int64)
 
     print(
-        f"Device={device.type}, queries={Q}x{dim}, docs={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={q_cpu.dtype}")
+        f"Device={device.type}, queries={Q}x{dim}, docs={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={q_cpu.dtype}, metric={metric}")
 
     with torch.no_grad():
         # Use a separate stream for prefetching data to overlap transfers and compute
@@ -170,6 +172,8 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
 
             # Move query batch to device
             qb = _to_device_chunk(q_cpu[qs:qe], device, tdtype)
+            if metric == "cosine":
+                qb = F.normalize(qb, p=2, dim=1)
 
             # Running top-k for this batch
             prev_scores = None  # (bs, <=k)
@@ -198,6 +202,9 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                             next_db = _to_device_chunk(d_cpu[next_ds:next_de], device, tdtype)
                 else:  # CPU path
                     db = _to_device_chunk(d_cpu[ds:de], device, tdtype)
+
+                if metric == "cosine":
+                    db = F.normalize(db, p=2, dim=1)
 
                 # Precision-aware GEMM: support float32/16/bfloat16
                 if device.type == "cpu" and qb.dtype in (torch.bfloat16, torch.float16):
@@ -258,6 +265,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
         "queries_path": q_path,
         "docs_path": d_path,
         "k": k,
+        "metric": metric,
         "batch_size": batch_size,
         "dtype": str(q_cpu.dtype),
         "device": device.type,

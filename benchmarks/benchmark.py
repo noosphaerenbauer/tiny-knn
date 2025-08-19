@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from tiny_knn.api import compute_topk
+from tiny_knn.api import exact_search
 
 # Map string to torch dtype (supported only)
 DTYPE_MAP = {
@@ -16,9 +16,9 @@ def _gen_tensor(shape, dtype_str):
     return (torch.rand(shape, dtype=torch.float32) * 2 - 1).to(dtype)
 
 
-def benchmark(q_shape, d_shape, dtype_str, k):
+def benchmark(q_shape, d_shape, dtype_str, k, metric):
     print("-" * 80)
-    print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}")
+    print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}, metric={metric}")
 
     q_path = "temp_queries.pt"
     d_path = "temp_docs.pt"
@@ -31,7 +31,7 @@ def benchmark(q_shape, d_shape, dtype_str, k):
     torch.save(d_t, d_path)
 
     start_time = time.time()
-    compute_topk(q_path=q_path, d_path=d_path, k=k, out_path=output_path)
+    exact_search(q_path=q_path, d_path=d_path, k=k, metric=metric, out_path=output_path)
     elapsed = time.time() - start_time
     print(f"Time taken: {elapsed:.2f}s")
 
@@ -43,21 +43,18 @@ def benchmark(q_shape, d_shape, dtype_str, k):
 def main():
     configs = [
         # Small matrices
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "cosine"},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "ip"},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
         # Medium matrices
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
         # Large matrices
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float32", "k": 100},
-        # Very large matrices
-        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "float32", "k": 100},
-        # Extreme cases
-        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "float32", "k": 100},
+        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
     ]
 
     for config in configs:
