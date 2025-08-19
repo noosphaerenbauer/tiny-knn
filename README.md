@@ -75,6 +75,7 @@ tiny-knn path/to/queries.pt path/to/docs.pt --k 100 --normalize --output-path re
 -   `--dtype`: Computation data type ('float32', 'float16', 'bfloat16') (default: 'float32').
 -   `--num-workers`: Number of workers for data loading (default: 0).
 -   `--normalize`: Normalize vectors to unit length (cosine similarity).
+-   `--deterministic`: If True, uses deterministic algorithms.
 -   `--verbose`: Enable verbose logging.
 -   `--quiet`: Suppress all output except for errors.
 
@@ -91,6 +92,7 @@ def exact_search(
     chunk_size: int = 65536,
     autotune: bool = False,
     normalize: bool = False,
+    deterministic: bool = False,
     device: str = "cuda",
     dtype: str = "float32",
     num_workers: int = 0,
@@ -109,6 +111,7 @@ Computes top-K nearest neighbors using exact search.
 -   **`chunk_size`**: Document chunk size.
 -   **`autotune`**: If True, automatically estimates batch and chunk sizes.
 -   **`normalize`**: If True, normalizes vectors to unit length (for cosine similarity).
+-   **`deterministic`**: If True, uses deterministic algorithms.
 -   **`device`**: Device to use (e.g., 'cuda', 'cuda:0', 'cpu', 'mps').
 -   **`dtype`**: Computation data type ('float32', 'float16', 'bfloat16').
 -   **`num_workers`**: Number of workers for data loading (not currently used).
