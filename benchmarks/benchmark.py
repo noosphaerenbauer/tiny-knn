@@ -59,15 +59,20 @@ def main():
     configs = [
         # Small matrices
         {"q_shape": (20000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (20000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
+        {"q_shape": (20000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
+        {"q_shape": (20000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
         {"q_shape": (20000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "metric": "ip"},
-        {"q_shape": (20000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
         # Medium matrices
-        {"q_shape": (20000, 512), "d_shape": (10000000, 512), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (20000, 512), "d_shape": (10000000, 512), "dtype_str": "float16", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 512), "d_shape": (10000000, 512), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 512), "d_shape": (10000000, 512), "dtype_str": "float16", "k": 100, "metric": "ip"},
         # Large matrices
-        {"q_shape": (20000, 2048), "d_shape": (10000000, 2048), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (20000, 2048), "d_shape": (10000000, 2048), "dtype_str": "float16", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 2048), "d_shape": (10000000, 2048), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (200000, 2048), "d_shape": (10000000, 2048), "dtype_str": "float16", "k": 100, "metric": "ip"},
+
     ]
 
     for config in configs:
