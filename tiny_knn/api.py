@@ -209,7 +209,7 @@ def exact_search(
     print(
         f"Device={torch_device.type}, metric={'cosine' if normalize_flag else 'ip'}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={tdtype}")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         stream = torch.cuda.Stream() if torch_device.type == "cuda" else None
 
         for qs in range(0, Q, batch_size):
