@@ -53,18 +53,18 @@ def benchmark(q_shape, d_shape, dtype_str, k, normalize):
 def main():
     configs = [
         # Small matrices
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "normalize": False},
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "normalize": True},
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "normalize": False},
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "normalize": True},
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "normalize": False},
-        {"q_shape": (2000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "normalize": True},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "normalize": False},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "normalize": True},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "bfloat16", "k": 100, "normalize": False},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "bfloat16", "k": 100, "normalize": True},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "normalize": False},
+        {"q_shape": (200000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "normalize": True},
         # Medium matrices
-        {"q_shape": (2000, 512), "d_shape": (1000000, 512), "dtype_str": "float32", "k": 100, "normalize": False},
-        {"q_shape": (2000, 512), "d_shape": (1000000, 512), "dtype_str": "bfloat16", "k": 100, "normalize": False},
+        {"q_shape": (200000, 512), "d_shape": (10000000, 512), "dtype_str": "float32", "k": 100, "normalize": False},
+        {"q_shape": (200000, 512), "d_shape": (10000000, 512), "dtype_str": "bfloat16", "k": 100, "normalize": False},
         # Large matrices
-        {"q_shape": (2000, 2048), "d_shape": (1000000, 2048), "dtype_str": "float32", "k": 100, "normalize": False},
-        {"q_shape": (2000, 2048), "d_shape": (1000000, 2048), "dtype_str": "bfloat16", "k": 100, "normalize": False},
+        {"q_shape": (200000, 2048), "d_shape": (10000000, 2048), "dtype_str": "float32", "k": 100, "normalize": False},
+        {"q_shape": (200000, 2048), "d_shape": (10000000, 2048), "dtype_str": "bfloat16", "k": 100, "normalize": False},
     ]
 
     for config in configs:
