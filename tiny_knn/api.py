@@ -23,7 +23,7 @@ def _get_free_cuda_mem() -> Tuple[int, int]:
         return 0, 0
 
 
-def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 0.5, max_batch_size: int = 524288) -> int:
+def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 0.5, max_batch_size: int = 131072) -> int:
     """
     Estimate a safe batch size to fit in GPU memory.
     This is a heuristic that allocates a fraction of memory for the query batch.
@@ -45,7 +45,7 @@ def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 
     return max(1, min(bs, Q, max_batch_size))
 
 
-def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, score_bytes: int, safety_frac: float = 0.5, max_chunk_size: int = 524288) -> int:
+def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, score_bytes: int, safety_frac: float = 0.5, max_chunk_size: int = 131072) -> int:
     """
     Estimate a safe number of document rows to load on GPU per chunk so that:
       - result matrix (batch_size x rows) fits comfortably
