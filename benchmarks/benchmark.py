@@ -43,18 +43,18 @@ def benchmark(q_shape, d_shape, dtype_str, k, metric):
 def main():
     configs = [
         # Small matrices
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "cosine"},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "ip"},
-        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "float32", "k": 100, "metric": "cosine"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "bfloat16", "k": 100, "metric": "cosine"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 128), "d_shape": (10000000, 128), "dtype_str": "float16", "k": 100, "metric": "cosine"},
         # Medium matrices
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 256), "d_shape": (10000000, 256), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 256), "d_shape": (10000000, 256), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
         # Large matrices
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float32", "k": 100, "metric": "ip"},
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 768), "d_shape": (10000000, 768), "dtype_str": "float32", "k": 100, "metric": "ip"},
+        {"q_shape": (1000000, 768), "d_shape": (10000000, 768), "dtype_str": "bfloat16", "k": 100, "metric": "ip"},
     ]
 
     for config in configs:
