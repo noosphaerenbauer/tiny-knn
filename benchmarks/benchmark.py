@@ -46,21 +46,23 @@ def main():
     configs = [
         # Small matrices
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float32", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "int8", "k": 100},
         # Medium matrices
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 200},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float16", "k": 200},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "int8", "k": 200},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float16", "k": 100},
+        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "int8", "k": 100},
         # Large matrices
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float16", "k": 500},
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "int8", "k": 500},
+        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100},
+        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "int8", "k": 100},
         # Very large matrices
-        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "float16", "k": 1000},
-        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "int8", "k": 1000},
+        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "bfloat16", "k": 100},
+        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "int8", "k": 100},
         # Extreme cases
-        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "float16", "k": 2000},
-        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "int8", "k": 2000},
+        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "bfloat16", "k": 100},
+        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "int8", "k": 100},
     ]
 
     for config in configs:
