@@ -1,0 +1,45 @@
+Correctness & algorithmic notes
+
+Validate shapes/dtypes and that k ≤ num_docs. Clamp or throw a clear error.
+
+Mixed precision & numerics: Consider torch.cuda.amp.autocast() for FP16 matmul with FP32 accumulation
+
+I/O & streaming: If files are large, load tensors in slices; memory-map via NumPy.
+
+Benchmarking/Testing
+
+Add small correctness tests: compare to CPU brute force on tiny matrices, check tie-handling, dtype/device parity, and reproducibility toggles.
+
+Offer a small benchmark comparing exact brute force (your method) vs FAISS exact/flat (GPU) so users can sanity-check speed/accuracy trade-offs. 
+
+Performance & ergonomics suggestions
+
+Batch/Chunk autotuning: Expose “dry-run” that estimates the largest safe batch_size × chunk_size given dim, dtype, and available VRAM; cache the picked sizes in the output metadata.
+
+Pinned host memory & overlapping: When moving query/doc blocks from CPU→GPU, set pin_memory=True and use CUDA streams to overlap H2D copies with compute.
+
+Device selection: Support cuda:0/1/..., mps, and cpu explicitly with a --device flag and documented fallbacks.
+
+Progress & logging: Add tqdm progress bars, --verbose/--quiet, and structured logging for batch boundaries, timings, and selected chunk sizes.
+
+CLI polish: --dtype, --normalize, --k, --output, --device, --batch-size, --chunk-size, --num-workers; echo the effective config at start.
+
+Typing & docs:
+
+Add type hints, py.typed, and a concise API reference in README (parameters, types, shapes).
+
+Distribution layout:
+
+You already have both pyproject.toml and setup.py. Prefer one modern path: PEP-621 metadata in pyproject.toml with setuptools (drop setup.py). 
+Python Enhancement Proposals (PEPs)
+Python Packaging
+
+CLI entrypoint:
+
+Ensure you define a console_scripts entry so tiny-knn installs a real command.
+
+Make it PyPI-ready
+
+Pick a package name
+Check availability on PyPI for tiny-knn (or tinyknn if hyphen is taken). The import package can stay tiny_knn. (Names are case-insensitive on PyPI.)
+

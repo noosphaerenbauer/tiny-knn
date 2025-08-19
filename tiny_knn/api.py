@@ -5,7 +5,6 @@ from typing import Tuple, Optional
 import torch
 import torch.nn.functional as F
 from tqdm import tqdm
-import numpy as np
 
 
 def _derive_output_path(queries_path: str, docs_path: str, k: int) -> str:
@@ -103,28 +102,71 @@ def exact_search(
     """
     start_time = time.time()
 
-    # Load tensors (CPU)
-    q_cpu: torch.Tensor = torch.load(q_path, map_location="cpu")
-    d_cpu: torch.Tensor = torch.load(d_path, map_location="cpu")
+    # Load tensors (CPU) with optional NumPy memmap for large .npy files
+    use_numpy = q_path.endswith('.npy') or d_path.endswith('.npy')
+    if use_numpy:
+        try:
+            import numpy as np  # type: ignore
+        except Exception as e:
+            raise ImportError("NumPy is required to read .npy files. Please install numpy.") from e
+        q_np = np.load(q_path, mmap_mode='r')
+        d_np = np.load(d_path, mmap_mode='r')
+        if q_np.ndim != 2 or d_np.ndim != 2:
+            raise ValueError("Embeddings must be 2D arrays of shape (N, dim)")
+        if q_np.shape[1] != d_np.shape[1]:
+            raise ValueError(f"Dim mismatch: queries dim={q_np.shape[1]} vs docs dim={d_np.shape[1]}")
+        if q_np.dtype != d_np.dtype:
+            raise ValueError(f"Dtype mismatch: queries dtype={q_np.dtype} vs docs dtype={d_np.dtype}")
+        # Map NumPy dtype to torch dtype
+        if q_np.dtype == np.float32:
+            tdtype = torch.float32
+        elif q_np.dtype == np.float16:
+            tdtype = torch.float16
+        else:
+            raise ValueError(f"Unsupported NumPy dtype: {q_np.dtype}. Use float32 or float16.")
+        Q, dim = q_np.shape
+        D, _ = d_np.shape
+    else:
+        q_cpu: torch.Tensor = torch.load(q_path, map_location="cpu")
+        d_cpu: torch.Tensor = torch.load(d_path, map_location="cpu")
+        if q_cpu.dim() != 2 or d_cpu.dim() != 2:
+            raise ValueError("Embeddings must be 2D tensors of shape (N, dim)")
+        if q_cpu.shape[1] != d_cpu.shape[1]:
+            raise ValueError(f"Dim mismatch: queries dim={q_cpu.shape[1]} vs docs dim={d_cpu.shape[1]}")
+        if q_cpu.dtype != d_cpu.dtype:
+            raise ValueError(f"Dtype mismatch: queries dtype={q_cpu.dtype} vs docs dtype={d_cpu.dtype}")
+        if q_cpu.dtype is torch.int8 or d_cpu.dtype is torch.int8:
+            raise ValueError("int8 dtype is not supported. Cast inputs to float16, bfloat16, or float32.")
+        Q, dim = q_cpu.shape
+        D, _ = d_cpu.shape
+        tdtype = q_cpu.dtype
 
-    # Validate shapes and dtypes
-    if q_cpu.dim() != 2 or d_cpu.dim() != 2:
-        raise ValueError("Embeddings must be 2D tensors of shape (N, dim)")
-    if q_cpu.shape[1] != d_cpu.shape[1]:
-        raise ValueError(f"Dim mismatch: queries dim={q_cpu.shape[1]} vs docs dim={d_cpu.shape[1]}")
-    if q_cpu.dtype != d_cpu.dtype:
-        raise ValueError(f"Dtype mismatch: queries dtype={q_cpu.dtype} vs docs dtype={d_cpu.dtype}")
-    if q_cpu.dtype is torch.int8 or d_cpu.dtype is torch.int8:
-        raise ValueError("int8 dtype is not supported. Cast inputs to float16, bfloat16, or float32.")
-
-    Q, dim = q_cpu.shape
-    D, _ = d_cpu.shape
+    # Validate k
+    if k < 1:
+        raise ValueError(f"k must be >= 1, got k={k}")
+    if k > D:
+        raise ValueError(f"k={k} exceeds number of docs D={D}")
 
     # Resolve device
     if device is None:
         torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         torch_device = torch.device(device)
+
+    # Reproducibility toggle
+    det_flag = os.environ.get("TINYKNN_DETERMINISTIC", "0").lower() in ("1", "true", "yes", "on")
+    if det_flag:
+        try:
+            torch.use_deterministic_algorithms(True)
+        except Exception:
+            pass
+        try:
+            torch.backends.cudnn.deterministic = True
+        except Exception:
+            pass
+        if torch_device.type == "cuda":
+            # Must be set before first cuBLAS call
+            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
     # Backend/precision options
     if torch_device.type == "cuda":
@@ -151,7 +193,6 @@ def exact_search(
     else:
         normalize_flag = bool(normalize)
 
-    tdtype = q_cpu.dtype
     emb_bytes = torch.tensor([], dtype=tdtype).element_size()
     score_bytes = 4  # fp32 scores
 
@@ -166,7 +207,7 @@ def exact_search(
     topk_indices = torch.empty((Q, k), dtype=torch.int64)
 
     print(
-        f"Device={torch_device.type}, metric={'cosine' if normalize_flag else 'ip'}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={q_cpu.dtype}")
+        f"Device={torch_device.type}, metric={'cosine' if normalize_flag else 'ip'}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={tdtype}")
 
     with torch.no_grad():
         stream = torch.cuda.Stream() if torch_device.type == "cuda" else None
@@ -175,12 +216,15 @@ def exact_search(
             qe = min(qs + batch_size, Q)
 
             # Move query batch
-            qb = _to_device_chunk(q_cpu[qs:qe], torch_device, tdtype)
+            if use_numpy:
+                qb_cpu = torch.from_numpy(np.asarray(q_np[qs:qe]))
+            else:
+                qb_cpu = q_cpu[qs:qe]
+            qb = _to_device_chunk(qb_cpu, torch_device, tdtype)
 
             # CPU matmul stability for low precision
             cpu_lowp = (torch_device.type == "cpu" and qb.dtype in (torch.float16, torch.bfloat16))
             if normalize_flag:
-                # Normalize on the device where we'll compute
                 if cpu_lowp:
                     qb = F.normalize(qb.to(torch.float32), p=2, dim=1, eps=1e-12)
                 else:
@@ -194,7 +238,11 @@ def exact_search(
             if stream:
                 with torch.cuda.stream(stream):
                     ds0, de0 = 0, min(doc_rows, D)
-                    chunk0 = _to_device_chunk(d_cpu[ds0:de0], torch_device, tdtype)
+                    if use_numpy:
+                        db_cpu0 = torch.from_numpy(np.asarray(d_np[ds0:de0]))
+                    else:
+                        db_cpu0 = d_cpu[ds0:de0]
+                    chunk0 = _to_device_chunk(db_cpu0, torch_device, tdtype)
                     if normalize_flag:
                         if torch_device.type == "cpu" and chunk0.dtype in (torch.float16, torch.bfloat16):
                             chunk0 = F.normalize(chunk0.to(torch.float32), p=2, dim=1, eps=1e-12)
@@ -213,7 +261,11 @@ def exact_search(
                     if ns < D:
                         with torch.cuda.stream(stream):
                             ne = min(ns + doc_rows, D)
-                            chunk = _to_device_chunk(d_cpu[ns:ne], torch_device, tdtype)
+                            if use_numpy:
+                                db_cpun = torch.from_numpy(np.asarray(d_np[ns:ne]))
+                            else:
+                                db_cpun = d_cpu[ns:ne]
+                            chunk = _to_device_chunk(db_cpun, torch_device, tdtype)
                             if normalize_flag:
                                 if torch_device.type == "cpu" and chunk.dtype in (torch.float16, torch.bfloat16):
                                     chunk = F.normalize(chunk.to(torch.float32), p=2, dim=1, eps=1e-12)
@@ -221,16 +273,24 @@ def exact_search(
                                     chunk = F.normalize(chunk, p=2, dim=1, eps=1e-12)
                             next_db = chunk
                 else:
-                    db = _to_device_chunk(d_cpu[ds:de], torch_device, tdtype)
+                    if use_numpy:
+                        db_cpu = torch.from_numpy(np.asarray(d_np[ds:de]))
+                    else:
+                        db_cpu = d_cpu[ds:de]
+                    db = _to_device_chunk(db_cpu, torch_device, tdtype)
                     if normalize_flag:
                         if torch_device.type == "cpu" and db.dtype in (torch.float16, torch.bfloat16):
                             db = F.normalize(db.to(torch.float32), p=2, dim=1, eps=1e-12)
                         else:
                             db = F.normalize(db, p=2, dim=1, eps=1e-12)
 
-                # Matmul with dtype-aware stability on CPU
+                # Matmul with proper numerics
                 if cpu_lowp:
                     scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t().contiguous())
+                elif torch_device.type == "cuda" and qb.dtype in (torch.float16, torch.bfloat16):
+                    # Use modern autocast API; GEMM uses FP16/BF16 inputs with FP32 accumulate
+                    with torch.amp.autocast(device_type='cuda', dtype=qb.dtype):
+                        scores = torch.matmul(qb, db.t().contiguous())
                 else:
                     scores = torch.matmul(qb, db.t().contiguous())
 
@@ -278,7 +338,7 @@ def exact_search(
         "docs_path": d_path,
         "k": k,
         "batch_size": batch_size,
-        "dtype": str(q_cpu.dtype),
+        "dtype": str(tdtype),
         "device": torch_device.type,
         "metric": "cosine" if normalize_flag else "ip",
     }
