@@ -31,7 +31,7 @@ def _write_npy_memmap(path, shape, dtype_str, seed: int | None = 42, max_chunk_m
     return path
 
 
-def benchmark(q_shape, d_shape, dtype_str, k, metric):
+def benchmark_numpy(q_shape, d_shape, dtype_str, k, metric):
     print("-" * 80)
     print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}, metric={metric}")
 
@@ -55,6 +55,43 @@ def benchmark(q_shape, d_shape, dtype_str, k, metric):
         os.remove(out_path)
 
 
+# Map string to torch dtype (supported only)
+DTYPE_MAP = {
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+}
+
+
+def _gen_tensor(shape, dtype_str):
+    dtype = DTYPE_MAP[dtype_str]
+    return (torch.rand(shape, dtype=torch.float32) * 2 - 1).to(dtype)
+
+
+def benchmark_pytorch(q_shape, d_shape, dtype_str, k, metric):
+    print("-" * 80)
+    print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}, metric={metric}")
+
+    q_path = "temp_queries.pt"
+    d_path = "temp_docs.pt"
+    output_path = "temp_results.pt"
+
+    q_t = _gen_tensor(q_shape, dtype_str)
+    d_t = _gen_tensor(d_shape, dtype_str)
+
+    torch.save(q_t, q_path)
+    torch.save(d_t, d_path)
+
+    start_time = time.time()
+    exact_search(q_path=q_path, d_path=d_path, k=k, metric=metric, out_path=output_path)
+    elapsed = time.time() - start_time
+    print(f"Time taken: {elapsed:.2f}s")
+
+    os.remove(q_path)
+    os.remove(d_path)
+    os.remove(output_path)
+
+
 def main():
     configs = [
         # Small matrices
@@ -76,7 +113,8 @@ def main():
     ]
 
     for config in configs:
-        benchmark(**config)
+        benchmark_numpy(**config)
+        benchmark_pytorch(**config)
 
 
 if __name__ == "__main__":
