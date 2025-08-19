@@ -110,7 +110,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     start_time = time.time()
 
     # Load with memory mapping to reduce RAM pressure
-    q_np = np.load(q_path, mmap_mode="r", allow_pickle=True)
+    q_np = np.load(q_path, mmap_mode="r")
     d_np = np.load(d_path, mmap_mode="r")
 
     if q_np.ndim != 2 or d_np.ndim != 2:

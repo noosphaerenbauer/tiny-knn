@@ -3,6 +3,15 @@ import time
 import numpy as np
 from tiny_knn.api import compute_topk
 
+# Map string to numpy dtype, with a safe fallback for bfloat16
+DTYPE_MAP = {
+    "float32": np.float32,
+    "float16": np.float16,
+    "bfloat16": getattr(np, "bfloat16", np.float16),  # fallback to float16 if not available
+    "int8": np.int8,
+}
+
+
 def benchmark(q_shape, d_shape, dtype_str, k):
     """
     Generates random data and benchmarks the compute_topk function.
@@ -14,13 +23,14 @@ def benchmark(q_shape, d_shape, dtype_str, k):
     d_path = "temp_docs.npy"
     output_path = "temp_results.pkl"
 
-    # Generate random data
+    # Generate random data with explicit dtype handling
     if dtype_str == "int8":
         q_np = np.random.randint(-128, 127, size=q_shape, dtype=np.int8)
         d_np = np.random.randint(-128, 127, size=d_shape, dtype=np.int8)
     else:
-        q_np = np.random.rand(*q_shape).astype(dtype_str)
-        d_np = np.random.rand(*d_shape).astype(dtype_str)
+        dtype = DTYPE_MAP.get(dtype_str, np.float32)
+        q_np = np.random.random_sample(q_shape).astype(dtype, copy=False)
+        d_np = np.random.random_sample(d_shape).astype(dtype, copy=False)
 
     np.save(q_path, q_np)
     np.save(d_path, d_np)
@@ -40,6 +50,7 @@ def benchmark(q_shape, d_shape, dtype_str, k):
     os.remove(q_path)
     os.remove(d_path)
     os.remove(output_path)
+
 
 def main():
     # Define benchmark configurations
@@ -67,6 +78,7 @@ def main():
 
     for config in configs:
         benchmark(**config)
+
 
 if __name__ == "__main__":
     main()
