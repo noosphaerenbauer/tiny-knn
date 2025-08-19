@@ -153,20 +153,6 @@ def exact_search(
     else:
         torch_device = torch.device(device)
 
-    # Reproducibility toggle
-    det_flag = os.environ.get("TINYKNN_DETERMINISTIC", "0").lower() in ("1", "true", "yes", "on")
-    if det_flag:
-        try:
-            torch.use_deterministic_algorithms(True)
-        except Exception:
-            pass
-        try:
-            torch.backends.cudnn.deterministic = True
-        except Exception:
-            pass
-        if torch_device.type == "cuda":
-            # Must be set before first cuBLAS call
-            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
     # Backend/precision options
     if torch_device.type == "cuda":
