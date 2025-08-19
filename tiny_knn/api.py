@@ -168,14 +168,14 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
 
     with torch.no_grad():
         # Use a separate stream for prefetching data to overlap transfers and compute
-        stream = torch.cuda.Stream if device.type == "cuda" else None
+        stream = torch.cuda.Stream() if device.type == "cuda" else None
 
         for qs in range(0, Q, batch_size):
             qe = min(qs + batch_size, Q)
             cur_bs = qe - qs
 
             # Move query batch to device
-            qb = _to_device_chunk(np.asarray(q_np[qs:qe]), device, tdtype)
+            qb = _to_device_chunk(np.array(q_np[qs:qe]), device, tdtype)
 
             # Running top-k for this batch
             prev_scores = None  # (bs, <=k)
@@ -183,10 +183,10 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
 
             # --- Dataloader-style prefetching loop ---
             next_db = None
-            if stream: # Prefetch first chunk
+            if stream:  # Prefetch first chunk
                 with torch.cuda.stream(stream):
                     ds, de = 0, min(doc_rows, D)
-                    db_np = np.asarray(d_np[ds:de])
+                    db_np = np.array(d_np[ds:de])
                     next_db = _to_device_chunk(db_np, device, tdtype)
 
             for ds in range(0, D, doc_rows):
@@ -196,24 +196,18 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                     # Wait for the prefetched chunk to be ready
                     torch.cuda.current_stream().wait_stream(stream)
                     db = next_db
-                    
+
                     # Start prefetching the next chunk in the background
                     next_ds = ds + doc_rows
                     if next_ds < D:
                         with torch.cuda.stream(stream):
                             next_de = min(next_ds + doc_rows, D)
-                            db_np = np.asarray(d_np[next_ds:next_de])
+                            db_np = np.array(d_np[next_ds:next_de])
                             next_db = _to_device_chunk(db_np, device, tdtype)
-                else: # CPU path
-                    db = _to_device_chunk(np.asarray(d_np[ds:de]), device, tdtype)
+                else:  # CPU path
+                    db = _to_device_chunk(np.array(d_np[ds:de]), device, tdtype)
 
-
-                # GEMM path with precision-aware casting for speed/memory
-                if qb.dtype == torch.int8:
-                    qb = qb.to(torch.float16, copy=False)
-                    db = db.to(torch.float16, copy=False)
                 scores = torch.matmul(qb, db.t().contiguous())
-
 
                 # Partial top-k within this chunk. Use float32 for stability.
                 chunk_k = min(k, de - ds)
