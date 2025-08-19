@@ -23,3 +23,6 @@ dependencies = [
 
 [project.scripts]
 tiny-knn = "tiny_knn.cli:main"
+
+[project.optional-dependencies]
+test = ["pytest"]
