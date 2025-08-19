@@ -8,7 +8,7 @@ version = "0.1.0"
 authors = [
   { name="BayesianKitten", email="author@example.com" },
 ]
-description = "A tiny KNN library for memory-mapped numpy arrays."
+description = "A tiny KNN library for large Torch tensors."
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8"
@@ -18,7 +18,6 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy",
     "torch",
 ]
 

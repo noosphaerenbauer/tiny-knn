@@ -1,14 +1,14 @@
 import os
 import time
-import numpy as np
+import torch
 from tiny_knn.api import compute_topk
 
-# Map string to numpy dtype, with a safe fallback for bfloat16
+# Map string to torch dtype
 DTYPE_MAP = {
-    "float32": np.float32,
-    "float16": np.float16,
-    "bfloat16": getattr(np, "bfloat16", np.float16),  # fallback to float16 if not available
-    "int8": np.int8,
+    "float32": torch.float32,
+    "float16": torch.float16,
+    "bfloat16": torch.bfloat16,
+    "int8": torch.int8,
 }
 
 
@@ -19,21 +19,22 @@ def benchmark(q_shape, d_shape, dtype_str, k):
     print("-" * 80)
     print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}")
 
-    q_path = "temp_queries.npy"
-    d_path = "temp_docs.npy"
-    output_path = "temp_results.pkl"
+    q_path = "temp_queries.pt"
+    d_path = "temp_docs.pt"
+    output_path = "temp_results.pt"
 
-    # Generate random data with explicit dtype handling
+    # Generate random data with explicit dtype handling (torch-only)
     if dtype_str == "int8":
-        q_np = np.random.randint(-128, 127, size=q_shape, dtype=np.int8)
-        d_np = np.random.randint(-128, 127, size=d_shape, dtype=np.int8)
+        # randint supports negative ranges; use int16 then cast for safety
+        q_t = torch.randint(-128, 128, q_shape, dtype=torch.int16).to(torch.int8)
+        d_t = torch.randint(-128, 128, d_shape, dtype=torch.int16).to(torch.int8)
     else:
-        dtype = DTYPE_MAP.get(dtype_str, np.float32)
-        q_np = np.random.random_sample(q_shape).astype(dtype, copy=False)
-        d_np = np.random.random_sample(d_shape).astype(dtype, copy=False)
+        dtype = DTYPE_MAP.get(dtype_str, torch.float32)
+        q_t = torch.rand(q_shape, dtype=torch.float32).to(dtype)
+        d_t = torch.rand(d_shape, dtype=torch.float32).to(dtype)
 
-    np.save(q_path, q_np)
-    np.save(d_path, d_np)
+    torch.save(q_t, q_path)
+    torch.save(d_t, d_path)
 
     # Run the benchmark
     start_time = time.time()
@@ -60,20 +61,23 @@ def main():
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "bfloat16", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float16", "k": 100},
         {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "int8", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "qint8", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "quint4x2", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float8_e4m3fn", "k": 100},
+        {"q_shape": (100000, 128), "d_shape": (1000000, 128), "dtype_str": "float8_e5m2", "k": 100},
         # Medium matrices
         {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float32", "k": 100},
         {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "float16", "k": 100},
         {"q_shape": (100000, 256), "d_shape": (1000000, 256), "dtype_str": "int8", "k": 100},
         # Large matrices
         {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "int8", "k": 100},
+        {"q_shape": (100000, 768), "d_shape": (1000000, 768), "dtype_str": "float32", "k": 100},
         # Very large matrices
         {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "int8", "k": 100},
+        {"q_shape": (100000, 1024), "d_shape": (1000000, 1024), "dtype_str": "float32", "k": 100},
         # Extreme cases
         {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "bfloat16", "k": 100},
-        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "int8", "k": 100},
+        {"q_shape": (100000, 2048), "d_shape": (1000000, 2048), "dtype_str": "float32", "k": 100},
     ]
 
     for config in configs:

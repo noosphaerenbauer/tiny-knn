@@ -1,9 +1,7 @@
 import os
-import pickle
 import time
 from typing import Tuple
 
-import numpy as np
 import torch
 
 
@@ -19,7 +17,7 @@ def _derive_output_path(queries_path: str, docs_path: str, k: int) -> str:
     """Derives a default output path from the input paths."""
     qbase = os.path.splitext(os.path.basename(queries_path))[0]
     dbase = os.path.splitext(os.path.basename(docs_path))[0]
-    return f"top{k}_{qbase}_x_{dbase}.pkl"
+    return f"top{k}_{qbase}_x_{dbase}.pt"
 
 
 def _get_free_cuda_mem() -> Tuple[int, int]:
@@ -42,16 +40,15 @@ def _estimate_batch_size(Q: int, dim: int, emb_bytes: int, safety_frac: float = 
         return min(Q, max_batch_size)
 
     usable = int(free_mem * safety_frac)
-    
+
     # Allocate ~20% of usable memory to the query batch tensor
     query_mem_limit = int(usable * 0.2)
-    
+
     # Calculate batch size based on memory for a single query vector
     bs = query_mem_limit // (dim * emb_bytes + 1)
-    
+
     # Clamp the batch size to reasonable limits
     return max(1, min(bs, Q, max_batch_size))
-
 
 
 
@@ -74,23 +71,26 @@ def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, 
     # Memory for one row of docs and one row of scores
     mem_per_row_docs = dim * emb_bytes
     mem_per_row_scores = batch_size * score_bytes
-    
+
     # Total memory per row is the sum of these
     total_mem_per_row = mem_per_row_docs + mem_per_row_scores
-    
+
     # Calculate how many rows can fit
     rows = usable // (total_mem_per_row + 1)
-    
+
     # Clip to dataset size and a reasonable maximum chunk size
     return max(1, min(D, max_chunk_size, rows))
 
 
-def _to_device_chunk(arr: np.ndarray, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
-    """Moves a numpy array to a torch device."""
-    t = torch.from_numpy(arr)
+def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    """Moves a CPU torch tensor chunk to the target device with proper dtype, using pinned memory on CUDA."""
     if device.type == "cuda":
-        t = t.pin_memory()
-    return t.to(device=device, dtype=dtype, non_blocking=True)
+        # Pin and transfer non-blocking for better H2D throughput
+        t_cpu = t_cpu.contiguous().pin_memory()
+        return t_cpu.to(device=device, dtype=dtype, non_blocking=True)
+    else:
+        # Stay on CPU, just ensure dtype
+        return t_cpu.to(device=device, dtype=dtype)
 
 
 def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_path: str | None = None) -> str:
@@ -98,8 +98,8 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     Computes top-K similarities (dot-product) between query and document embeddings.
 
     Args:
-        q_path: Path to the memory-mapped numpy array of query embeddings.
-        d_path: Path to the memory-mapped numpy array of document embeddings.
+        q_path: Path to the torch-saved tensor of query embeddings.
+        d_path: Path to the torch-saved tensor of document embeddings.
         k: The number of top similarities to retrieve for each query.
         force_cpu: If True, forces the computation to run on the CPU.
         out_path: Optional path to save the results. If None, a path is derived from the input paths.
@@ -109,19 +109,19 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     """
     start_time = time.time()
 
-    # Load with memory mapping to reduce RAM pressure
-    q_np = np.load(q_path, mmap_mode="r")
-    d_np = np.load(d_path, mmap_mode="r")
+    # Load tensors from disk (CPU)
+    q_cpu: torch.Tensor = torch.load(q_path, map_location="cpu")
+    d_cpu: torch.Tensor = torch.load(d_path, map_location="cpu")
 
-    if q_np.ndim != 2 or d_np.ndim != 2:
-        raise ValueError("Embeddings must be 2D arrays of shape (N, dim)")
-    if q_np.shape[1] != d_np.shape[1]:
-        raise ValueError(f"Dim mismatch: queries dim={q_np.shape[1]} vs docs dim={d_np.shape[1]}")
-    if q_np.dtype != d_np.dtype:
-        raise ValueError(f"Dtype mismatch: queries dtype={q_np.dtype} vs docs dtype={d_np.dtype}")
+    if q_cpu.dim() != 2 or d_cpu.dim() != 2:
+        raise ValueError("Embeddings must be 2D tensors of shape (N, dim)")
+    if q_cpu.shape[1] != d_cpu.shape[1]:
+        raise ValueError(f"Dim mismatch: queries dim={q_cpu.shape[1]} vs docs dim={d_cpu.shape[1]}")
+    if q_cpu.dtype != d_cpu.dtype:
+        raise ValueError(f"Dtype mismatch: queries dtype={q_cpu.dtype} vs docs dtype={d_cpu.dtype}")
 
-    Q, dim = q_np.shape
-    D, _ = d_np.shape
+    Q, dim = q_cpu.shape
+    D, _ = d_cpu.shape
 
     device = torch.device("cpu")
     if not force_cpu and torch.cuda.is_available():
@@ -146,7 +146,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
         except Exception:
             pass
 
-    tdtype = _torch_dtype(str(q_np.dtype))
+    tdtype = q_cpu.dtype
     emb_bytes = torch.tensor([], dtype=tdtype).element_size()
     score_bytes = 4  # keep scores in fp32 for topk stability
 
@@ -160,11 +160,11 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
     empty_cache_mode = os.environ.get("TINYKNN_EMPTY_CACHE", "batch")  # "never"|"chunk"|"batch"
 
     # Allocate outputs on CPU (final result)
-    topk_scores = np.empty((Q, k), dtype=np.float32)
-    topk_indices = np.empty((Q, k), dtype=np.int64)
+    topk_scores = torch.empty((Q, k), dtype=torch.float32)
+    topk_indices = torch.empty((Q, k), dtype=torch.int64)
 
     print(
-        f"Device={device.type}, queries={Q}x{dim}, docs={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={q_np.dtype}")
+        f"Device={device.type}, queries={Q}x{dim}, docs={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={q_cpu.dtype}")
 
     with torch.no_grad():
         # Use a separate stream for prefetching data to overlap transfers and compute
@@ -175,7 +175,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
             cur_bs = qe - qs
 
             # Move query batch to device
-            qb = _to_device_chunk(np.array(q_np[qs:qe]), device, tdtype)
+            qb = _to_device_chunk(q_cpu[qs:qe], device, tdtype)
 
             # Running top-k for this batch
             prev_scores = None  # (bs, <=k)
@@ -186,8 +186,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
             if stream:  # Prefetch first chunk
                 with torch.cuda.stream(stream):
                     ds, de = 0, min(doc_rows, D)
-                    db_np = np.array(d_np[ds:de])
-                    next_db = _to_device_chunk(db_np, device, tdtype)
+                    next_db = _to_device_chunk(d_cpu[ds:de], device, tdtype)
 
             for ds in range(0, D, doc_rows):
                 de = min(ds + doc_rows, D)
@@ -202,12 +201,21 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                     if next_ds < D:
                         with torch.cuda.stream(stream):
                             next_de = min(next_ds + doc_rows, D)
-                            db_np = np.array(d_np[next_ds:next_de])
-                            next_db = _to_device_chunk(db_np, device, tdtype)
+                            next_db = _to_device_chunk(d_cpu[next_ds:next_de], device, tdtype)
                 else:  # CPU path
-                    db = _to_device_chunk(np.array(d_np[ds:de]), device, tdtype)
+                    db = _to_device_chunk(d_cpu[ds:de], device, tdtype)
 
-                scores = torch.matmul(qb, db.t().contiguous())
+                # Precision-aware GEMM to support int8 and bf16
+                if qb.dtype == torch.int8:
+                    # Upcast int8 -> float16 for fast CUDA GEMM (Tensor Cores) and to avoid addmm_cuda error
+                    q_mat = qb.to(torch.float16)
+                    db_mat = db.to(torch.float16)
+                    scores = torch.matmul(q_mat, db_mat.t().contiguous())
+                elif qb.dtype == torch.bfloat16 and device.type == "cpu":
+                    # Some CPUs have slow/limited bf16; use fp32 on CPU for stability
+                    scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t().contiguous())
+                else:
+                    scores = torch.matmul(qb, db.t().contiguous())
 
                 # Partial top-k within this chunk. Use float32 for stability.
                 chunk_k = min(k, de - ds)
@@ -235,9 +243,9 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                 if device.type == "cuda" and empty_cache_mode == "chunk":
                     torch.cuda.empty_cache()
 
-            # Save batch results to CPU arrays
-            topk_scores[qs:qe] = prev_scores.detach().cpu().numpy()
-            topk_indices[qs:qe] = prev_indices.detach().cpu().numpy()
+            # Save batch results to CPU tensors
+            topk_scores[qs:qe] = prev_scores
+            topk_indices[qs:qe] = prev_indices
 
             # Free batch tensors
             del qb, prev_scores, prev_indices
@@ -245,10 +253,7 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
                 torch.cuda.empty_cache()
 
             done = qe
-            if Q > 0:
-                pct = 100.0 * done / Q
-            else:
-                pct = 100.0
+            pct = 100.0 * done / Q if Q > 0 else 100.0
             print(f"Processed queries {qs}:{qe} ({pct:.1f}%)")
 
     elapsed = time.time() - start_time
@@ -265,12 +270,11 @@ def compute_topk(q_path: str, d_path: str, k: int, force_cpu: bool = False, out_
         "docs_path": d_path,
         "k": k,
         "batch_size": batch_size,
-        "dtype": str(q_np.dtype),
+        "dtype": str(q_cpu.dtype),
         "device": device.type,
     }
 
-    with open(out_path, "wb") as f:
-        pickle.dump(out_obj, f)
+    torch.save(out_obj, out_path)
 
     print(f"Saved: {out_path}")
     return out_path

@@ -1,4 +1,4 @@
-"""tiny-knn - A tiny KNN library for memory-mapped numpy arrays."""
+"""tiny-knn - A tiny KNN library for large Torch tensors."""
 
 from .api import compute_topk
 
