@@ -286,13 +286,13 @@ def exact_search(
 
                 # Matmul with proper numerics
                 if cpu_lowp:
-                    scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t().contiguous())
+                    scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t())
                 elif torch_device.type == "cuda" and qb.dtype in (torch.float16, torch.bfloat16):
                     # Use modern autocast API; GEMM uses FP16/BF16 inputs with FP32 accumulate
                     with torch.amp.autocast(device_type='cuda', dtype=qb.dtype):
-                        scores = torch.matmul(qb, db.t().contiguous())
+                        scores = torch.matmul(qb, db.t())
                 else:
-                    scores = torch.matmul(qb, db.t().contiguous())
+                    scores = torch.matmul(qb, db.t())
 
                 chunk_k = min(k, de - ds)
                 vals, idx = torch.topk(scores.float(), k=chunk_k, dim=1, largest=True, sorted=True)
