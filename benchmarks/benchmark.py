@@ -9,6 +9,16 @@ DTYPE_MAP = {
     "float16": torch.float16,
     "bfloat16": torch.bfloat16,
     "int8": torch.int8,
+    "qint8": torch.qint8,
+    "quint4x2": torch.quint4x2,
+    "float8_e4m3fn": torch.float8_e4m3fn,
+    "float8_e5m2": torch.float8_e5m2,
+    "float64": torch.float64,
+    "int16": torch.int16,
+    "int32": torch.int32,
+    "int64": torch.int64,
+    "uint8": torch.uint8,
+    "bool": torch.bool,
 }
 
 
