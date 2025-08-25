@@ -96,3 +96,8 @@ To install the package in editable mode for development, run:
 ```bash
 pip install -e .
 ```
+
+## Releases
+
+- GitHub releases: https://github.com/noosphaerenbauer/tiny-knn/releases
+- Changelog: see `CHANGELOG.md`
