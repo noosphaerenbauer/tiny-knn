@@ -1,53 +1,55 @@
 import argparse
+import os
+import numpy as np
+import torch
 from .api import exact_search
+
+
+def _save_results(indices, scores, out_path: str) -> None:
+    ext = os.path.splitext(out_path)[1].lower()
+    if ext in (".pt", ".pth"):
+        if isinstance(indices, np.ndarray):
+            indices_t = torch.from_numpy(indices)
+            scores_t = torch.from_numpy(scores)
+        else:
+            indices_t = indices
+            scores_t = scores
+        torch.save({"indices": indices_t, "scores": scores_t}, out_path)
+    elif ext == ".npz":
+        if isinstance(indices, torch.Tensor):
+            indices_np = indices.cpu().numpy()
+            scores_np = scores.cpu().numpy()
+        else:
+            indices_np = indices
+            scores_np = scores
+        np.savez(out_path, indices=indices_np, scores=scores_np)
+    else:
+        # Default to torch save
+        if isinstance(indices, np.ndarray):
+            indices_t = torch.from_numpy(indices)
+            scores_t = torch.from_numpy(scores)
+        else:
+            indices_t = indices
+            scores_t = scores
+        torch.save({"indices": indices_t, "scores": scores_t}, out_path)
+
 
 def main():
     parser = argparse.ArgumentParser(description="Compute top-K similarities between query and document embeddings.")
-    parser.add_argument("queries_path", help="Path to queries .pt file")
-    parser.add_argument("docs_path", help="Path to documents .pt file")
-    parser.add_argument("--output-path", help="Path to output .pt file")
+    parser.add_argument("queries_path", help="Path to queries (.pt or .npy)")
+    parser.add_argument("docs_path", help="Path to documents (.pt or .npy)")
     parser.add_argument("-k", "--k", type=int, default=100, help="Top-K per query to keep")
-    
-    # Performance & hardware
-    parser.add_argument("--batch-size", type=int, default=1024, help="Query batch size")
-    parser.add_argument("--chunk-size", type=int, default=65536, help="Document chunk size")
-    parser.add_argument("--autotune", action="store_true", help="Automatically estimate batch and chunk sizes")
-    parser.add_argument("--device", default="cuda", help="Device to use (e.g., 'cuda', 'cuda:0', 'cpu', 'mps')")
-    parser.add_argument("--dtype", default="float32", choices=["float32", "float16", "bfloat16"], help="Computation data type")
-    parser.add_argument("--num-workers", type=int, default=0, help="Number of workers for data loading")
-
-    # Algorithm
-    parser.add_argument("--normalize", action="store_true", help="Normalize vectors to unit length (cosine similarity)")
-    
-    # Logging
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    parser.add_argument("--quiet", action="store_true", help="Suppress all output except for errors")
-
-    # Algorithm
-    parser.add_argument("--normalize", action="store_true", help="Normalize vectors to unit length (cosine similarity)")
-
-    # Logging
-    parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
-    parser.add_argument("--quiet", action="store_true", help="Suppress all output except for errors")
+    parser.add_argument("--metric", choices=["ip", "cosine"], default="ip", help="Similarity metric")
+    parser.add_argument("--output-path", help="Optional path to save results (.pt or .npz)")
 
     args = parser.parse_args()
 
-    exact_search(
-        q_path=args.queries_path,
-        d_path=args.docs_path,
-        k=args.k,
-        normalize=args.normalize,
-        deterministic=args.deterministic,
-        device=args.device,
-        dtype=args.dtype,
-        batch_size=args.batch_size,
-        chunk_size=args.chunk_size,
-        autotune=args.autotune,
-        num_workers=args.num_workers,
-        out_path=args.output_path,
-        verbose=args.verbose,
-        quiet=args.quiet,
-    )
+    indices, scores = exact_search(args.queries_path, args.docs_path, args.k, metric=args.metric)
+
+    if args.output_path:
+        _save_results(indices, scores, args.output_path)
+    else:
+        print(f"Computed top-{args.k}: indices shape={getattr(indices, 'shape', None)}, scores shape={getattr(scores, 'shape', None)}")
 
 if __name__ == "__main__":
     main()

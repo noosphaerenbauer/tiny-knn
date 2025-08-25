@@ -1,18 +1,9 @@
 import os
 import time
 from typing import Tuple, Optional
-
+import numpy as np  # type: ignore
 import torch
 import torch.nn.functional as F
-from tqdm import tqdm
-
-
-def _derive_output_path(queries_path: str, docs_path: str, k: int) -> str:
-    """Derives a default output path from the input paths."""
-    qbase = os.path.splitext(os.path.basename(queries_path))[0]
-    dbase = os.path.splitext(os.path.basename(docs_path))[0]
-    return f"top{k}_{qbase}_x_{dbase}.pt"
-
 
 def _get_free_cuda_mem() -> Tuple[int, int]:
     """Returns the free and total CUDA memory in bytes."""
@@ -84,15 +75,22 @@ def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dty
         return t_cpu.to(device=device, dtype=dtype)
 
 
+def load_array(path: str):
+    # Load tensors (CPU) with optional NumPy memmap for large .npy files
+    use_numpy = path.endswith('.npy')
+    if use_numpy:
+        arr = np.load(path, mmap_mode='r')
+    else:
+        arr: torch.Tensor = torch.load(path, map_location="cpu")
+    return arr
+
+
 def exact_search(
-    q_path: str,
-    d_path: str,
+    arr1: np.ndarray | torch.Tensor | str,
+    arr2: np.ndarray | torch.Tensor | str,
     k: int,
     metric: str | None = None,
-    normalize: bool | None = None,
-    out_path: str | None = None,
-    device: str | torch.device | None = None,
-) -> str:
+) -> Tuple[np.ndarray | torch.Tensor, np.ndarray | torch.Tensor]:
     """
     Exact top-K search with chunking to avoid OOM. Supports:
       - metric='ip' (inner product)
@@ -102,33 +100,43 @@ def exact_search(
     """
     start_time = time.time()
 
-    # Load tensors (CPU) with optional NumPy memmap for large .npy files
-    use_numpy = q_path.endswith('.npy') or d_path.endswith('.npy')
-    if use_numpy:
-        try:
-            import numpy as np  # type: ignore
-        except Exception as e:
-            raise ImportError("NumPy is required to read .npy files. Please install numpy.") from e
-        q_np = np.load(q_path, mmap_mode='r')
-        d_np = np.load(d_path, mmap_mode='r')
+    if isinstance(arr1, str) and isinstance(arr2, str):
+        arr1 = load_array(arr1)
+        arr2 = load_array(arr2)
+    
+    # Validate input types and shapes; support numpy or torch tensors (or file paths above)
+    if not (isinstance(arr1, (torch.Tensor, np.ndarray))):
+        raise ValueError("arr1 must be a numpy.ndarray, torch.Tensor, or filepath string")
+    if not (isinstance(arr2, (torch.Tensor, np.ndarray))):
+        raise ValueError("arr2 must be a numpy.ndarray, torch.Tensor, or filepath string")
+
+    if isinstance(arr1, np.ndarray):
+        assert isinstance(arr2, np.ndarray)
+        use_numpy = True
+        q_np: np.ndarray = arr1
+        d_np: np.ndarray = arr2
         if q_np.ndim != 2 or d_np.ndim != 2:
             raise ValueError("Embeddings must be 2D arrays of shape (N, dim)")
         if q_np.shape[1] != d_np.shape[1]:
             raise ValueError(f"Dim mismatch: queries dim={q_np.shape[1]} vs docs dim={d_np.shape[1]}")
         if q_np.dtype != d_np.dtype:
             raise ValueError(f"Dtype mismatch: queries dtype={q_np.dtype} vs docs dtype={d_np.dtype}")
-        # Map NumPy dtype to torch dtype
-        if q_np.dtype == np.float32:
-            tdtype = torch.float32
-        elif q_np.dtype == np.float16:
-            tdtype = torch.float16
-        else:
-            raise ValueError(f"Unsupported NumPy dtype: {q_np.dtype}. Use float32 or float16.")
         Q, dim = q_np.shape
         D, _ = d_np.shape
-    else:
-        q_cpu: torch.Tensor = torch.load(q_path, map_location="cpu")
-        d_cpu: torch.Tensor = torch.load(d_path, map_location="cpu")
+        # Normalize dtype to supported and record equivalent torch dtype
+        if q_np.dtype not in (np.float32, np.float16):
+            q_np = q_np.astype(np.float32, copy=False)
+            d_np = d_np.astype(np.float32, copy=False)
+            tdtype = torch.float32
+        else:
+            tdtype = torch.float32 if q_np.dtype == np.float32 else torch.float16
+
+    elif isinstance(arr1, torch.Tensor):
+        use_numpy = False
+        assert isinstance(arr2, torch.Tensor)
+        q_cpu: torch.Tensor = arr1
+        d_cpu: torch.Tensor = arr2
+
         if q_cpu.dim() != 2 or d_cpu.dim() != 2:
             raise ValueError("Embeddings must be 2D tensors of shape (N, dim)")
         if q_cpu.shape[1] != d_cpu.shape[1]:
@@ -147,20 +155,10 @@ def exact_search(
     if k > D:
         raise ValueError(f"k={k} exceeds number of docs D={D}")
 
-    # Resolve device
-    if device is None:
-        torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    else:
-        torch_device = torch.device(device)
-
-
-    # Backend/precision options
+    torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if torch_device.type == "cuda":
         try:
             torch.backends.cuda.matmul.allow_tf32 = True
-        except Exception:
-            pass
-        try:
             torch.set_float32_matmul_precision("high")
         except Exception:
             pass
@@ -172,12 +170,11 @@ def exact_search(
         except Exception:
             pass
 
+
     # Determine operation type
-    metric = (metric or "ip").lower()
-    if normalize is None:
-        normalize_flag = (metric == "cosine")
-    else:
-        normalize_flag = bool(normalize)
+    if metric not in ("ip", "cosine"):
+        raise ValueError("metric must be one of {'ip','cosine'}")
+    
 
     emb_bytes = torch.tensor([], dtype=tdtype).element_size()
     score_bytes = 4  # fp32 scores
@@ -193,7 +190,7 @@ def exact_search(
     topk_indices = torch.empty((Q, k), dtype=torch.int64)
 
     print(
-        f"Device={torch_device.type}, metric={'cosine' if normalize_flag else 'ip'}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={tdtype}")
+        f"Device={torch_device.type}, metric={metric}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={tdtype}")
 
     with torch.inference_mode():
         stream = torch.cuda.Stream() if torch_device.type == "cuda" else None
@@ -210,7 +207,7 @@ def exact_search(
 
             # CPU matmul stability for low precision
             cpu_lowp = (torch_device.type == "cpu" and qb.dtype in (torch.float16, torch.bfloat16))
-            if normalize_flag:
+            if metric == "cosine":
                 if cpu_lowp:
                     qb = F.normalize(qb.to(torch.float32), p=2, dim=1, eps=1e-12)
                 else:
@@ -229,7 +226,7 @@ def exact_search(
                     else:
                         db_cpu0 = d_cpu[ds0:de0]
                     chunk0 = _to_device_chunk(db_cpu0, torch_device, tdtype)
-                    if normalize_flag:
+                    if metric == "cosine":
                         if torch_device.type == "cpu" and chunk0.dtype in (torch.float16, torch.bfloat16):
                             chunk0 = F.normalize(chunk0.to(torch.float32), p=2, dim=1, eps=1e-12)
                         else:
@@ -252,7 +249,7 @@ def exact_search(
                             else:
                                 db_cpun = d_cpu[ns:ne]
                             chunk = _to_device_chunk(db_cpun, torch_device, tdtype)
-                            if normalize_flag:
+                            if metric == "cosine":
                                 if torch_device.type == "cpu" and chunk.dtype in (torch.float16, torch.bfloat16):
                                     chunk = F.normalize(chunk.to(torch.float32), p=2, dim=1, eps=1e-12)
                                 else:
@@ -264,7 +261,7 @@ def exact_search(
                     else:
                         db_cpu = d_cpu[ds:de]
                     db = _to_device_chunk(db_cpu, torch_device, tdtype)
-                    if normalize_flag:
+                    if metric == "cosine":
                         if torch_device.type == "cpu" and db.dtype in (torch.float16, torch.bfloat16):
                             db = F.normalize(db.to(torch.float32), p=2, dim=1, eps=1e-12)
                         else:
@@ -284,13 +281,11 @@ def exact_search(
                 vals, idx = torch.topk(scores.float(), k=chunk_k, dim=1, largest=True, sorted=True)
                 idx = idx + ds
 
-                vals_cpu, idx_cpu = vals.cpu(), idx.cpu()
-
                 if prev_scores is None:
-                    prev_scores, prev_indices = vals_cpu, idx_cpu
+                    prev_scores, prev_indices = vals, idx
                 else:
-                    combined_scores = torch.cat([prev_scores, vals_cpu], dim=1)
-                    combined_indices = torch.cat([prev_indices, idx_cpu], dim=1)
+                    combined_scores = torch.cat([prev_scores, vals], dim=1)
+                    combined_indices = torch.cat([prev_indices, idx], dim=1)
                     if combined_scores.shape[1] > k:
                         prev_scores, pick = torch.topk(combined_scores, k=k, dim=1, largest=True, sorted=True)
                         prev_indices = torch.gather(combined_indices, 1, pick)
@@ -301,8 +296,8 @@ def exact_search(
                 if torch_device.type == "cuda" and empty_cache_mode == "chunk":
                     torch.cuda.empty_cache()
 
-            topk_scores[qs:qe] = prev_scores
-            topk_indices[qs:qe] = prev_indices
+            topk_scores[qs:qe] = prev_scores.cpu()
+            topk_indices[qs:qe] = prev_indices.cpu()
 
             del qb, prev_scores, prev_indices
             if torch_device.type == "cuda" and empty_cache_mode in ("batch", "chunk"):
@@ -314,20 +309,6 @@ def exact_search(
     elapsed = time.time() - start_time
     print(f"Done in {elapsed:.2f}s")
 
-    if out_path is None:
-        out_path = _derive_output_path(q_path, d_path, k)
-
-    out_obj = {
-        "indices": topk_indices,
-        "scores": topk_scores,
-        "queries_path": q_path,
-        "docs_path": d_path,
-        "k": k,
-        "batch_size": batch_size,
-        "dtype": str(tdtype),
-        "device": torch_device.type,
-        "metric": "cosine" if normalize_flag else "ip",
-    }
-    torch.save(out_obj, out_path)
-    print(f"Saved: {out_path}")
-    return out_path
+    if use_numpy:
+        return topk_indices.numpy(), topk_scores.numpy()
+    return topk_indices, topk_scores

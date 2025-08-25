@@ -42,7 +42,7 @@ def benchmark_numpy(q_shape, d_shape, dtype_str, k, metric):
     _write_npy_memmap(d_path, d_shape, dtype_str)
 
     start_time = time.time()
-    out_path = exact_search(q_path=q_path, d_path=d_path, k=k, metric=metric, out_path=None)
+    _ = exact_search(q_path, d_path, k, metric=metric)
     elapsed = time.time() - start_time
     print(f"Time taken: {elapsed:.2f}s")
 
@@ -51,8 +51,6 @@ def benchmark_numpy(q_shape, d_shape, dtype_str, k, metric):
         os.remove(q_path)
     if os.path.exists(d_path):
         os.remove(d_path)
-    if os.path.exists(out_path):
-        os.remove(out_path)
 
 
 # Map string to torch dtype (supported only)
@@ -72,24 +70,13 @@ def benchmark_pytorch(q_shape, d_shape, dtype_str, k, metric):
     print("-" * 80)
     print(f"Benchmarking with: Q={q_shape}, D={d_shape}, dtype={dtype_str}, k={k}, metric={metric}")
 
-    q_path = "temp_queries.pt"
-    d_path = "temp_docs.pt"
-    output_path = "temp_results.pt"
-
     q_t = _gen_tensor(q_shape, dtype_str)
     d_t = _gen_tensor(d_shape, dtype_str)
 
-    torch.save(q_t, q_path)
-    torch.save(d_t, d_path)
-
     start_time = time.time()
-    exact_search(q_path=q_path, d_path=d_path, k=k, metric=metric, out_path=output_path)
+    _ = exact_search(q_t, d_t, k, metric=metric)
     elapsed = time.time() - start_time
     print(f"Time taken: {elapsed:.2f}s")
-
-    os.remove(q_path)
-    os.remove(d_path)
-    os.remove(output_path)
 
 
 def main():
