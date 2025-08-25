@@ -25,7 +25,6 @@ def main():
 
     # Algorithm
     parser.add_argument("--normalize", action="store_true", help="Normalize vectors to unit length (cosine similarity)")
-    parser.add_argument("--deterministic", action="store_true", help="Use deterministic algorithms")
 
     # Logging
     parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")

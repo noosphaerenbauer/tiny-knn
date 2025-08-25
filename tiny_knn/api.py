@@ -78,7 +78,7 @@ def _estimate_doc_chunk_rows(D: int, dim: int, batch_size: int, emb_bytes: int, 
 def _to_device_chunk(t_cpu: torch.Tensor, device: torch.device, dtype: torch.dtype) -> torch.Tensor:
     """Moves a CPU torch tensor chunk to the target device with proper dtype, using pinned memory on CUDA."""
     if device.type == "cuda":
-        t_cpu = t_cpu.contiguous().pin_memory()
+        t_cpu = t_cpu.pin_memory()
         return t_cpu.to(device=device, dtype=dtype, non_blocking=True)
     else:
         return t_cpu.to(device=device, dtype=dtype)
@@ -153,20 +153,6 @@ def exact_search(
     else:
         torch_device = torch.device(device)
 
-    # Reproducibility toggle
-    det_flag = os.environ.get("TINYKNN_DETERMINISTIC", "0").lower() in ("1", "true", "yes", "on")
-    if det_flag:
-        try:
-            torch.use_deterministic_algorithms(True)
-        except Exception:
-            pass
-        try:
-            torch.backends.cudnn.deterministic = True
-        except Exception:
-            pass
-        if torch_device.type == "cuda":
-            # Must be set before first cuBLAS call
-            os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
     # Backend/precision options
     if torch_device.type == "cuda":
@@ -209,7 +195,7 @@ def exact_search(
     print(
         f"Device={torch_device.type}, metric={'cosine' if normalize_flag else 'ip'}, Q={Q}x{dim}, D={D}x{dim}, batch_size={batch_size}, doc_rows={doc_rows}, k={k}, dtype={tdtype}")
 
-    with torch.no_grad():
+    with torch.inference_mode():
         stream = torch.cuda.Stream() if torch_device.type == "cuda" else None
 
         for qs in range(0, Q, batch_size):
@@ -286,13 +272,13 @@ def exact_search(
 
                 # Matmul with proper numerics
                 if cpu_lowp:
-                    scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t().contiguous())
+                    scores = torch.matmul(qb.to(torch.float32), db.to(torch.float32).t())
                 elif torch_device.type == "cuda" and qb.dtype in (torch.float16, torch.bfloat16):
                     # Use modern autocast API; GEMM uses FP16/BF16 inputs with FP32 accumulate
                     with torch.amp.autocast(device_type='cuda', dtype=qb.dtype):
-                        scores = torch.matmul(qb, db.t().contiguous())
+                        scores = torch.matmul(qb, db.t())
                 else:
-                    scores = torch.matmul(qb, db.t().contiguous())
+                    scores = torch.matmul(qb, db.t())
 
                 chunk_k = min(k, de - ds)
                 vals, idx = torch.topk(scores.float(), k=chunk_k, dim=1, largest=True, sorted=True)
