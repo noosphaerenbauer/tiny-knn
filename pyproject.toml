@@ -18,11 +18,21 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "torch",
+    "torch>=2.1",
+    "tqdm"
 ]
-
-[project.scripts]
-tiny-knn = "tiny_knn.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest"]
+
+[project.urls]
+Homepage = "https://github.com/noosphaerenbauer/tiny-knn"
+Issues   = "https://github.com/noosphaerenbauer/tiny-knn/issues"
+Source   = "https://github.com/noosphaerenbauer/tiny-knn"
+
+# If you want the CLI `tiny-knn` shown in your README:
+[project.scripts]
+tiny-knn = "tiny_knn.cli:main"    # ensure tiny_knn/cli.py defines main()
+
+[tool.setuptools.packages.find]
+exclude = ["tests*", "benchmarks*"]
