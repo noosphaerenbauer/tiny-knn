@@ -15,7 +15,7 @@ This library works with Torch tensors, NumPy arrays, or file paths to `.pt`/`.np
 ## Installation
 
 ```bash
-pip install .
+pip install tiny-knn
 ```
 
 ## Usage
