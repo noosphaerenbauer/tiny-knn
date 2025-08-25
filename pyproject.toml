@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "tiny-knn"
 version = "0.1.0"
 authors = [
-  { name="BayesianKitten", email="author@example.com" },
+  { name="AmeyaP", email="ameya.prabhu@bethgelab.org" },
 ]
 description = "A tiny KNN library for large Torch tensors."
 readme = "README.md"
